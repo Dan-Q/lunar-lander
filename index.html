@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Lunar Lander</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style type="text/css">
+    body {
+      margin: 0;
+      overflow: hidden;
+    }
+    canvas {
+      background: black;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+
+  <script type="text/javascript">
+    'use strict';
+
+    // Prepare canvas
+    const idealHeight = 1080;
+    const canvas = document.getElementById('canvas');
+    const context = canvas.getContext('2d');
+    const clearPadding = 1; // area to the sides of the lander track to clear, to be sure all trails are deleted
+    let scalingFactor = 1;
+    let paused = true;
+    let restartReadyFrom = (new Date()).getTime() + 500;
+    const restartDelay = 1000; // ms until allowed to restart
+    let lastPhysicsTimestamp = 0;
+
+    // Prepare assets
+    const gravity = 1.62; // m/s/s; Earth is 9.807, Moon is 1.62; Mars is 3.711
+    // Interface
+    const interfaceMargin = 25;
+    const interfaceSpacing = 125;
+    // Stars
+    const starDensity = 0.0003;
+    // Mountains
+    const mountainDensity = 0.02;
+    const idealMountainWidth = 200;
+    const idealMountainHeight = 35;
+    // Surface
+    const idealSurfacePosition = 1040;
+    let surfacePosition = idealSurfacePosition * scalingFactor;
+    // Lander
+    const nativeLanderHeight = 135;
+    const nativeLanderWidth = 160;
+    const idealLanderScaling = 0.5;
+    const idealLanderHeight = nativeLanderHeight * idealLanderScaling;
+    const idealLanderWidth = nativeLanderWidth * idealLanderScaling;
+    const startLanderAltitude = 900;
+    const startLanderVelocity = 12;
+    const startLanderFuel = 100;
+    const landerThrustPower = 320;
+    const landerFuelBurnRate = 3.5;
+    const landerFuelUnitMass = 2550 / startLanderFuel;
+    const landerMassDry = 2150; // kg
+    let landerAltitude = startLanderAltitude;
+    let landerVelocity = startLanderVelocity;
+    let landerEnginesOn = false;
+    let landerFuel = startLanderFuel;
+    let landerMass = landerMassDry + (landerFuel * landerFuelUnitMass);
+    let won, lost;
+    const landerImage = new Image();
+    /* Lunar Lander image adapted from https://thenounproject.com/term/lunar-lander/302039/, by Giuditta Valentina Gentile [CC-by licensed] */
+    landerImage.src = 'data:image/svg+xml;charset=utf-8;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4NCjxzdmcgd2lkdGg9IjE1OS45OSIgaGVpZ2h0PSIxMzQuOTkiIGVuYWJsZS1iYWNrZ3JvdW5kPSJuZXcgOTEwIDU1MCAxMDAgMTAwIiBmaWxsPSIjMDAwMDAwIiB2ZXJzaW9uPSIxLjEiIHZpZXdCb3g9IjkxMCA1NTAgNzkuOTk3MDA5IDY3LjQ5NjAwMiIgeG1sOnNwYWNlPSJwcmVzZXJ2ZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczpjYz0iaHR0cDovL2NyZWF0aXZlY29tbW9ucy5vcmcvbnMjIiB4bWxuczpkYz0iaHR0cDovL3B1cmwub3JnL2RjL2VsZW1lbnRzLzEuMS8iIHhtbG5zOnJkZj0iaHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyI+PG1ldGFkYXRhPjxyZGY6UkRGPjxjYzpXb3JrIHJkZjphYm91dD0iIj48ZGM6Zm9ybWF0PmltYWdlL3N2Zyt4bWw8L2RjOmZvcm1hdD48ZGM6dHlwZSByZGY6cmVzb3VyY2U9Imh0dHA6Ly9wdXJsLm9yZy9kYy9kY21pdHlwZS9TdGlsbEltYWdlIi8+PGRjOnRpdGxlLz48L2NjOldvcms+PC9yZGY6UkRGPjwvbWV0YWRhdGE+PGcgZmlsbD0iI2ZmZiI+PHBhdGggZD0ibTk4OS4xOSA2MTEuODJoLTMuNzY1bC04LjUwNS0yMC43MjdjLTAuMDgtMC4xOTUtMC4yMzQtMC4zNTItMC40MjgtMC40MzZsLTYuNjUtMi44Njh2LTAuMTY5YzAtMC40NDYtMC4zNjItMC44MDgtMC44MDktMC44MDhoLTUuMjg3bC0wLjQxMy0xLjc0M2gwLjE3MmMwLjI2OCAwIDAuNTE4LTAuMTMzIDAuNjY4LTAuMzU0IDAuMTUtMC4yMjIgMC4xODItMC41MDIgMC4wODQtMC43NTFsLTMuMTQ5LTcuOTc5Yy0wLjEyMi0wLjMwOS0wLjQyLTAuNTExLTAuNzUyLTAuNTExaC0xLjA1M2MyLjI0NS0yLjM3IDMuNTQtNS41NDggMy41NC04Ljg1IDAtMi4yNjYtMC41OTktNC40OTMtMS43My02LjQ0M2wtMi40NjgtNC44N2MtMS42Ni0zLjI3Ny00Ljk3NC01LjMxMi04LjY0Ny01LjMxMnMtNi45ODcgMi4wMzYtOC42NDcgNS4zMTJsLTIuNDY4IDQuODdjLTEuMTMyIDEuOTUtMS43MyA0LjE3Ny0xLjczIDYuNDQzIDAgMC45NiAwLjExMyAxLjkwOSAwLjMyMyAyLjgzMWgtNC42OTNjLTAuNDQ2IDAtMC44MDggMC4zNjItMC44MDggMC44MDh2MS42M2MtMS41MTcgMS4zNzMtMi4zOCAzLjMwOC0yLjM4IDUuMzY5czAuODYzIDMuOTk2IDIuMzggNS4zNjl2MS42MjljMCAwLjQ0NiAwLjM2MiAwLjgwOSAwLjgwOCAwLjgwOWgzLjg4MWwtMC40MTMgMS43NDJoLTUuMjg4Yy0wLjQ0NiAwLTAuODA4IDAuMzYyLTAuODA4IDAuODA5djAuMTY4bC02LjY1IDIuODY5Yy0wLjE5NCAwLjA4NC0wLjM0OCAwLjI0LTAuNDI4IDAuNDM2bC04LjUwNSAyMC43MjdoLTMuNzY1Yy0wLjQ0NiAwLTAuODA4IDAuMzYxLTAuODA4IDAuODA4IDAgMi42ODUgMi4xODQgNC44NjcgNC44NjcgNC44NjdoMC40MmMyLjY4NCAwIDQuODY3LTIuMTgzIDQuODY3LTQuODY3IDAtMC40NDYtMC4zNjItMC44MDgtMC44MDgtMC44MDhoLTMuMDI3bDEuODEyLTQuNDE2IDYuNTE3LTIuMDM4aDE5Ljg4bC0wLjQzOCAyLjk5NGMtMC4wMzQgMC4yMzEgMC4wMzUgMC40NjggMC4xODggMC42NDUgMC4xNTMgMC4xNzggMC4zNzYgMC4yOCAwLjYxMSAwLjI4aDQuMzAxdjIuNTM1aC0zLjUzMWMtMC40NDYgMC0wLjgwOCAwLjM2MS0wLjgwOCAwLjgwOCAwIDIuNjg1IDIuMTg0IDQuODY3IDQuODY3IDQuODY3aDAuNDJjMi42ODQgMCA0Ljg2OC0yLjE4MyA0Ljg2OC00Ljg2NyAwLTAuNDQ2LTAuMzYyLTAuODA4LTAuODA5LTAuODA4aC0zLjM5MXYtMi41MzVoNC4zMDFjMC4yMzQgMCAwLjQ1OC0wLjEwMyAwLjYxMS0wLjI4czAuMjIyLTAuNDEzIDAuMTg4LTAuNjQ1bC0wLjQzOC0yLjk5NGgxOS44OGw2LjUxNyAyLjAzOCAxLjgxMiA0LjQxNmgtMy4wMjZjLTAuNDQ2IDAtMC44MDkgMC4zNjEtMC44MDkgMC44MDggMCAyLjY4NSAyLjE4NCA0Ljg2NyA0Ljg2NyA0Ljg2N2gwLjQyYzIuNjg1IDAgNC44NjgtMi4xODMgNC44NjgtNC44NjcgMmUtMyAtMC40NDYtMC4zNTktMC44MDgtMC44MDYtMC44MDh6bS03My45MDQgNC4wNTloLTAuNDJjLTEuNTE0IDAtMi43OS0xLjA0LTMuMTQ5LTIuNDQyaDYuNzE5Yy0wLjM2MSAxLjQwMi0xLjYzNyAyLjQ0Mi0zLjE1IDIuNDQyem0zNC44NTIgMGgtMC40MmMtMS41MTQgMC0yLjc4OS0xLjA0LTMuMTQ5LTIuNDQyaDYuNzE5Yy0wLjM2IDEuNDAyLTEuNjM2IDIuNDQyLTMuMTUgMi40NDJ6bTI0Ljc0NC0yNC4xNTUtNS4wMzkgNi4zMjR2LTguNDk4em0tMjQuODg0LTEuNDQ5LTMuNDgtMS44NDZoNi45NnptLTYuOTI3LTEuODQ1IDUuODEyIDMuMDg0LTYuOTkyIDEyLjIzNmgtNi40MTJ2LTE1LjMyem02LjExOSA1LjgwM3Y5LjUxNmgtNS40Mzh6bTEuNjE3IDAgNS40MzggOS41MTZoLTUuNDM4em0wLjMwNy0yLjcxOSA1LjgxMi0zLjA4NWg3LjU5MXYxNS4zMmgtNi40MTJ6bTExLjIwMy04LjA2aC0xLjUwNmwtMS4yNDUtNi4zNjJoMC4yNHptLTI0LjYzOCAwIDIuNTExLTYuMzYyaDAuMjRsLTEuMjQ1IDYuMzYyem0xLjU5Mi0xMy40ODYgNi4wOTcgNS41MDdoLTIuMjc3Yy0xLjg0LTEuNDM2LTMuMTUzLTMuMzQ5LTMuODItNS41MDd6bS0wLjUwMi0zLjM0M2MwLTEuNjEgMC4zNDYtMy4xOTggMS4wMDYtNC42NTFoNi4yNjZ2MS42MDJsLTcuMjY5IDMuMTY2YzAtMC4wMzktM2UtMyAtMC4wNzctM2UtMyAtMC4xMTd6bTEwLjQyMS0xMS45Mjl2NS42NjJoLTQuMjcxbDIuMDM5LTUuNjYyem0zLjg0OSAwIDIuMDM4IDUuNjYyaC00LjI3MXYtNS42NjJ6bTguMTg4IDExLjkyOWMwIDAuMDM5LTNlLTMgMC4wNzgtM2UtMyAwLjExN2wtNy4yNjktMy4xNjZ2LTEuNjAyaDYuMjY2YzAuNjYxIDEuNDU0IDEuMDA2IDMuMDQxIDEuMDA2IDQuNjUxem0tMTUuMTg2IDcuMjgtNi4zOTgtNS43NzkgNi4zOTgtMi43ODd6bTEuNjE2IDEuNTcxdi0xMy41MDFoNC42ODN2MTMuNTAxem02LjI5OS0xMC4xMzcgNi4zOTggMi43ODctNi4zOTggNS43Nzl6bS0xMS44NzkgMTEuNzUzaDQuMjU1bC0wLjUzNCA2LjM2MmgtNC45NjZ6bTUuODc3IDBoNC4wODlsMC41MzQgNi4zNjJoLTUuMTU3em02LjI0NCA2LjM2Mi0wLjUzMy02LjM2Mmg0LjI1NWwxLjI0NSA2LjM2MnptMC40My03Ljk3OCA2LjA5OC01LjUwN2MtMC42NjcgMi4xNTgtMS45OCA0LjA3LTMuODIgNS41MDd6bTIuNTc2LTE5LjQzMyAyLjE4NyA0LjMxNWgtMi41OTZsLTIuMDM4LTUuNjYyaDEuNTg3YzAuMzI1IDAuNDE1IDAuNjE1IDAuODY0IDAuODYgMS4zNDd6bS0yLjU2MS0yLjk2M2gtOS4yOWMxLjMzMi0wLjkzNyAyLjk0MS0xLjQ2MyA0LjY0NS0xLjQ2M3MzLjMxMyAwLjUyNyA0LjY0NSAxLjQ2M3ptLTExLjg1IDIuOTYzYzAuMjQ1LTAuNDgzIDAuNTM1LTAuOTMyIDAuODYtMS4zNDdoMS41ODdsLTIuMDM4IDUuNjYyaC0yLjU5NnptLTExLjU4MyAyMS4yMmMwLTEuMDEyIDAuMjctMS45ODMgMC43NjQtMi44MzJ2NS42NjNjLTAuNDk0LTAuODQ3LTAuNzY0LTEuODE5LTAuNzY0LTIuODMxem0yLjM4LTYuMTloNC4zNjVjMC42MDQgMS42MyAxLjUzNSAzLjEzMiAyLjczOCA0LjQwM2gtMS4wNTNjLTAuMzMyIDAtMC42MyAwLjIwMy0wLjc1MSAwLjUxMWwtMi45NDggNy40NjdoLTIuMzUxem00LjczNCAxMy45OTdoMjMuMzQ5bDAuNDEzIDEuNzQzaC0yNC4xNzV6bS04LjE3IDEyLjk3OC01LjA0LTYuMzI0IDUuMDQtMi4xNzR6bS01LjYzIDUuNzAyYy0wLjA4MiAwLTAuMTY0IDAuMDEyLTAuMjQxIDAuMDM2bC01LjM1NSAxLjY3NiA1LjEyMi0xMi40ODEgNi4xMDUgNy42NjF2My4xMDh6bTcuMjQ2LTE1LjMyaDIuMDkzdjE1LjMyaC0yLjA5M3ptMTQuMDU0IDE5LjIzOSAwLjMzNi0yLjMwM2gzLjAzdjIuMzAzem04LjM0OSAwaC0zLjM2NnYtMi4zMDNoMy4wMjl6bTE0LjA1My0zLjkxOWgtMi4wOTN2LTE1LjMyaDIuMDkzem03LjQ4OCAwLjAzNmMtMC4wNzgtMC4wMjQtMC4xNTktMC4wMzctMC4yNDEtMC4wMzdoLTUuNjN2LTMuMTA3bDYuMTA0LTcuNjYyIDUuMTIyIDEyLjQ4MnptOS40MTcgMTIuMDkzaC0wLjQyYy0xLjUxNCAwLTIuNzg5LTEuMDQtMy4xNDktMi40NDJoNi43MTljLTAuMzYxIDEuNDAyLTEuNjM3IDIuNDQyLTMuMTUgMi40NDJ6Ii8+PHBhdGggZD0ibTk0MC4xNyA1OTcuNDNjMS43ODIgMCAzLjIzMi0xLjQ1IDMuMjMyLTMuMjMycy0xLjQ1LTMuMjMxLTMuMjMyLTMuMjMxLTMuMjMyIDEuNDQ5LTMuMjMyIDMuMjMxIDEuNDUgMy4yMzIgMy4yMzIgMy4yMzJ6bTAtNC44NDljMC44OTEgMCAxLjYxNiAwLjcyNiAxLjYxNiAxLjYxNiAwIDAuODkyLTAuNzI1IDEuNjE2LTEuNjE2IDEuNjE2LTAuODkyIDAtMS42MTYtMC43MjUtMS42MTYtMS42MTYgMC0wLjg5IDAuNzI0LTEuNjE2IDEuNjE2LTEuNjE2eiIvPjxwYXRoIGQ9Im05NjAuMSA1OTAuOTZjLTEuNzgyIDAtMy4yMzIgMS40NDktMy4yMzIgMy4yMzFzMS40NSAzLjIzMiAzLjIzMiAzLjIzMiAzLjIzMi0xLjQ1IDMuMjMyLTMuMjMyLTEuNDUtMy4yMzEtMy4yMzItMy4yMzF6bTAgNC44NDdjLTAuODkyIDAtMS42MTYtMC43MjUtMS42MTYtMS42MTZzMC43MjUtMS42MTYgMS42MTYtMS42MTYgMS42MTYgMC43MjYgMS42MTYgMS42MTZjMCAwLjg5Mi0wLjcyNiAxLjYxNi0xLjYxNiAxLjYxNnoiLz48L2c+PC9zdmc+';
+    // Engines
+    const engineImage = new Image();
+    engineImage.src = 'data:image/svg+xml;charset=utf-8;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4NCjxzdmcgd2lkdGg9IjE1OS45OSIgaGVpZ2h0PSIxMzQuOTkiIGVuYWJsZS1iYWNrZ3JvdW5kPSJuZXcgOTEwIDU1MCAxMDAgMTAwIiBmaWxsPSIjMDAwMDAwIiB2ZXJzaW9uPSIxLjEiIHZpZXdCb3g9IjkxMCA1NTAgNzkuOTk3MDA5IDY3LjQ5NjAwMiIgeG1sOnNwYWNlPSJwcmVzZXJ2ZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczpjYz0iaHR0cDovL2NyZWF0aXZlY29tbW9ucy5vcmcvbnMjIiB4bWxuczpkYz0iaHR0cDovL3B1cmwub3JnL2RjL2VsZW1lbnRzLzEuMS8iIHhtbG5zOnJkZj0iaHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyI+PG1ldGFkYXRhPjxyZGY6UkRGPjxjYzpXb3JrIHJkZjphYm91dD0iIj48ZGM6Zm9ybWF0PmltYWdlL3N2Zyt4bWw8L2RjOmZvcm1hdD48ZGM6dHlwZSByZGY6cmVzb3VyY2U9Imh0dHA6Ly9wdXJsLm9yZy9kYy9kY21pdHlwZS9TdGlsbEltYWdlIi8+PGRjOnRpdGxlLz48L2NjOldvcms+PC9yZGY6UkRGPjwvbWV0YWRhdGE+PGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCwtMSkiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmNzQ3NCIgc3Ryb2tlLXdpZHRoPSIuNXB4Ij48cGF0aCBkPSJtOTI1IDYwNy4yMSAyLjIwNDMgOC4yMjY1IDIuMTM0OS03Ljk2NzUiLz48cGF0aCBkPSJtOTI5LjM0IDYwNy40NyAyLjIwNDMgOC4yMjY1IDIuMTM0OS03Ljk2NzUiLz48cGF0aCBkPSJtOTMzLjY4IDYwNy43MyAyLjIwNDMgOC4yMjY1IDIuMTM0OS03Ljk2NzUiLz48L2c+PGcgdHJhbnNmb3JtPSJtYXRyaXgoLTEgMCAwIDEgMTkwMCAtMSkiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmNzQ3NCIgc3Ryb2tlLXdpZHRoPSIuNXB4Ij48cGF0aCBkPSJtOTI1IDYwNy4yMSAyLjIwNDMgOC4yMjY1IDIuMTM0OS03Ljk2NzUiLz48cGF0aCBkPSJtOTI5LjM0IDYwNy40NyAyLjIwNDMgOC4yMjY1IDIuMTM0OS03Ljk2NzUiLz48cGF0aCBkPSJtOTMzLjY4IDYwNy43MyAyLjIwNDMgOC4yMjY1IDIuMTM0OS03Ljk2NzUiLz48L2c+PC9zdmc+'
+
+    // Handle resizing
+    window.addEventListener('resize', handleResize);
+    handleResize();
+
+    // Handle firing of engines
+    window.addEventListener('keydown', ()=>{landerEnginesOn = true;});
+    window.addEventListener('keyup', ()=>{
+      if(paused && restartReadyFrom && (restartReadyFrom < (new Date()).getTime())) start();
+      landerEnginesOn = false;
+    });
+    window.addEventListener('mousedown', ()=>{landerEnginesOn = true;});
+    window.addEventListener('mouseup', ()=>{
+      if(paused && restartReadyFrom && (restartReadyFrom < (new Date()).getTime())) start();
+      landerEnginesOn = false;
+    });
+    window.addEventListener('touchstart', ()=>{landerEnginesOn = true;});
+    window.addEventListener('touchend', ()=>{
+      if(paused && restartReadyFrom && (restartReadyFrom < (new Date()).getTime())) start();
+      landerEnginesOn = false;
+    });
+
+    // Starts the game!
+    function start(){
+      // Redraw all
+      handleResize();
+      // Reset physics clock
+      lastPhysicsTimestamp = 0;
+      // Reset lander attributes
+      landerAltitude = startLanderAltitude;
+      landerVelocity = startLanderVelocity;
+      landerFuel = startLanderFuel;
+      landerEnginesOn = false;
+      won = lost = restartReadyFrom = false;
+      // Unpause, if paused, to allow physics to occur
+      paused = false;
+    }
+
+    /* 160 x 135 */
+
+    // Handle resizing of the browser window
+    function handleResize(){
+      // Recalculate sizes
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      scalingFactor = canvas.height / idealHeight;
+      surfacePosition = idealSurfacePosition * scalingFactor;
+      context.strokeStyle = 'white';
+      // Clear everything
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.lineWidth = 2;
+      // Redraw stars
+      const numStars = Math.round(starDensity * canvas.width * canvas.height);
+      context.fillStyle = 'white';
+      for(let i = 0; i < numStars; i++){
+        const randX = Math.random() * canvas.width;
+        const randY = Math.random() * (idealSurfacePosition * scalingFactor);
+        context.fillRect(randX, randY, 1, 1);
+      }
+      // Redraw lunar surface
+      context.beginPath();
+      context.moveTo(0, surfacePosition);
+      context.lineTo(canvas.width, surfacePosition);
+      context.stroke();
+      // Redraw mountains
+      const numMountains = Math.floor(0.5 * canvas.width * mountainDensity);
+      context.fillStyle = 'black';
+      const excludedZoneStart = (canvas.width - (idealLanderWidth * scalingFactor)) / 2; // where NOT to draw mountains
+      const excludedZoneEnd = excludedZoneStart + (idealLanderWidth * scalingFactor);    // where NOT to draw mountains
+      let mountainCoords = [];
+      // Two passes - first pass strokes the mountains, second pass fills them (so the result is a single perceived line)
+      for(let i = 0; i < numMountains; i++){
+        const mountainLeft = (Math.random() * (canvas.width + idealMountainWidth)) - idealMountainWidth
+        const mountainCenter = mountainLeft + (Math.random() * idealMountainWidth / 2) + (idealMountainWidth / 4);
+        const mountainRight = mountainCenter + (Math.random() * idealMountainWidth / 2) + (idealMountainWidth / 4);
+        const mountainHeight = (Math.random() * (idealMountainHeight / 2 * 3)) + (idealMountainHeight / 3);
+        if(((mountainLeft < excludedZoneStart) && (mountainRight >= excludedZoneStart)) || ((mountainLeft <= excludedZoneEnd) && (mountainRight > excludedZoneEnd))) continue;
+        context.beginPath();
+        context.moveTo(mountainLeft, surfacePosition + 1);
+        context.lineTo(mountainCenter, surfacePosition - (mountainHeight * scalingFactor));
+        context.lineTo(mountainRight, surfacePosition + 1);
+        context.stroke();
+        mountainCoords.push([mountainLeft, mountainCenter, mountainRight, mountainHeight]);
+      }
+      for(let i = 0; i < mountainCoords.length; i++){
+        context.beginPath();
+        context.moveTo(mountainCoords[i][0], surfacePosition + 2);
+        context.lineTo(mountainCoords[i][1], surfacePosition - (mountainCoords[i][3] * scalingFactor));
+        context.lineTo(mountainCoords[i][2], surfacePosition + 2);
+        context.fill();
+      }
+    }
+
+    // Updates the positions of things based on physics
+    function physics(timestamp){
+      if(paused) return; // physics doesn't hapen when the game's paused
+
+      // Determine how long has passed since we last calculated the physics, in seconds
+      if(lastPhysicsTimestamp == 0) lastPhysicsTimestamp = timestamp; // if this is the first call, treat is as "no time has passed"
+      const timePassed = (timestamp - lastPhysicsTimestamp) / 1000;
+      lastPhysicsTimestamp = timestamp;
+
+      // Burn fuel
+      if(paused || (landerFuel <= 0)) landerEnginesOn = false;
+      if(landerEnginesOn) landerFuel -= (landerFuelBurnRate * timePassed);
+
+      // Update lander mass
+      landerMass = landerMassDry + (landerFuel * landerFuelUnitMass)
+
+      // Change lander velocity
+      const landerAccelerationDownFromGravity = gravity * timePassed;
+      const landerAccelerationUpFromThrust = (landerEnginesOn ? (landerThrustPower / landerMass) : 0);
+      landerVelocity += landerAccelerationDownFromGravity - landerAccelerationUpFromThrust;
+
+      // Move lander
+      landerAltitude -= landerVelocity * timePassed;
+
+      // If lander landed, work out if it was a success, zero altitude, and pause
+      if(landerAltitude <= 0) {
+        if(landerVelocity < 4.5) { won = true; } else { lost = true; }
+        landerAltitude = 0;
+        paused = true;
+      }
+
+      // Flag when restarting will be allowed
+      restartReadyFrom = (new Date()).getTime() + restartDelay;
+    }
+
+    // Animates a new frame
+    function animate(timestamp){
+      // Determine surface position
+      const surfacePosition = idealSurfacePosition * scalingFactor;
+      const landerWidth = idealLanderWidth * scalingFactor;
+      const screenCenter = (canvas.width - landerWidth) / 2;
+      const landerHeight = idealLanderHeight * scalingFactor;
+      const landerPosition = surfacePosition - ((landerAltitude + idealLanderHeight) * scalingFactor);
+      const pausedAtStartOfAnimateRun = paused;
+
+      if(!pausedAtStartOfAnimateRun){
+        // Clear the "column" through which the lander falls
+        context.clearRect(screenCenter - clearPadding, 0, landerWidth + (clearPadding * 2), surfacePosition - 2);
+        // Clear the interface areas
+        context.clearRect(0, surfacePosition + 1, canvas.width, (canvas.height - surfacePosition - 2));
+      }
+
+      // Do the physics simulation
+      physics(timestamp);
+
+      // Draw the current frame
+      if(!pausedAtStartOfAnimateRun){
+        // Lander
+        context.drawImage(landerImage, screenCenter, landerPosition, landerWidth, landerHeight);
+        // Engines
+        if(landerEnginesOn) context.drawImage(engineImage, screenCenter, landerPosition, landerWidth, landerHeight);
+        // Interface
+        const interfaceTextSize = Math.round((canvas.height - surfacePosition) * 0.75);
+        context.font = `${interfaceTextSize}px sans-serif`;
+        let interfacePosition = 0;
+        const interfaceElements = [
+          [`${Math.round(landerVelocity)}m/s`, (landerVelocity < 4.5 ? 'white' : 'red')],
+          [`${Math.round(landerAltitude)}m`, 'white'],
+          [`${Math.ceil((landerFuel / startLanderFuel) * 100)}%`, ((landerFuel / startLanderFuel) <= 0.2 ? 'red' : 'white')],
+          [`${Math.ceil(landerMass)}kg`, 'white'],
+          [(landerEnginesOn ? 'BURN' : ''), 'white']
+        ];
+        interfaceElements.forEach(el => {
+          context.fillStyle = el[1];
+          context.fillText(el[0], interfaceMargin + (interfaceSpacing * interfacePosition * scalingFactor), interfaceTextSize + surfacePosition);
+          interfacePosition += 1;
+        });
+      }
+      // Won/lost status display
+      const resultTextSize = Math.round(48 * scalingFactor);
+      context.font = `${resultTextSize}px sans-serif`;
+      context.fillStyle = 'white';
+      if(won) {
+        context.fillText('You win!', (canvas.width / 2) - (95 * scalingFactor), canvas.height / 2);
+      } else if(lost) {
+        context.fillText('You lose!', (canvas.width / 2) - (95 * scalingFactor), canvas.height / 2);
+      }
+      // Press to play display
+      context.font = `${resultTextSize * 0.75}px sans-serif`;
+      if(paused && restartReadyFrom && (restartReadyFrom < (new Date()).getTime())) {
+        context.fillText('Press to play', (canvas.width / 2) - (105 * scalingFactor), (canvas.height / 2) + (100 * scalingFactor));
+      }
+
+      // Request the next frame
+      requestAnimationFrame(animate);
+    }
+    // Request the first frame
+    requestAnimationFrame(animate);
+
+    // Start the game
+    // start();
+  </script>
+</body>
+</html>
