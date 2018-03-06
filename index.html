@@ -54,7 +54,7 @@
     const startLanderAltitude = 900;
     const startLanderVelocity = 12;
     const startLanderFuel = 100;
-    const landerThrustPower = 320;
+    const landerThrustPower = 320*60;
     const landerFuelBurnRate = 3.5;
     const landerFuelUnitMass = 2550 / startLanderFuel;
     const landerMassDry = 2150; // kg
@@ -181,7 +181,7 @@
 
       // Change lander velocity
       const landerAccelerationDownFromGravity = gravity * timePassed;
-      const landerAccelerationUpFromThrust = (landerEnginesOn ? (landerThrustPower / landerMass) : 0);
+      const landerAccelerationUpFromThrust = (landerEnginesOn ? (landerThrustPower / landerMass * timePassed) : 0);
       landerVelocity += landerAccelerationDownFromGravity - landerAccelerationUpFromThrust;
 
       // Move lander
